@@ -12,5 +12,5 @@ export default async function TripPage({ params }: { params: Promise<{ id: strin
   const trip = await getTrip(uid, id);
   if (!trip) notFound();
   const history = (await listTrips(uid)).filter((t) => t.id !== id);
-  return <Planner trip={trip} history={history} mapsKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ""} />;
+  return <Planner trip={trip} history={history} mapKey={process.env.NEXT_PUBLIC_MAPTILER_KEY || ""} />;
 }

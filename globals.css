@@ -76,3 +76,10 @@ input::placeholder, textarea::placeholder { color: var(--mute); }
   .card { cursor: pointer; }
   .tip { display: none; }
 }
+
+/* map pins + attribution */
+.pin { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #1a1200; background: var(--sodium); color: #1a1200; font: 700 .85rem var(--font-body), sans-serif; display: grid; place-items: center; cursor: pointer; padding: 0; box-shadow: 0 0 0 4px rgba(255,194,74,.28); }
+.pin.on { box-shadow: 0 0 0 6px rgba(255,194,74,.55); transform: scale(1.12); }
+.maplibregl-ctrl-top-right { top: calc(env(safe-area-inset-top, 0px) + 68px); }
+.maplibregl-ctrl-attrib { background: rgba(10,18,32,.7) !important; color: var(--mute); }
+.maplibregl-ctrl-attrib a { color: var(--ghost) !important; }
