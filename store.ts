@@ -46,3 +46,18 @@ export async function listTrips(uid: string) {
   const all = await readAll<Trip>(`trips/${uid}/`);
   return all.sort((a, b) => b.createdAt - a.createdAt);
 }
+
+// Used by /api/health to check that storage really persists on this deployment.
+export async function selfTest() {
+  const out = { blobToken: useBlob, write: false, read: false, error: "" };
+  try {
+    const p = `health/${Date.now()}.json`;
+    await write(p, { ok: 1 });
+    out.write = true;
+    out.read = !!(await read(p));
+    await remove(p);
+  } catch (e: any) {
+    out.error = String(e?.message || e).slice(0, 200);
+  }
+  return out;
+}

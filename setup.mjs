@@ -15,6 +15,7 @@ const map = {
   "api-trips.ts": "app/api/trips/route.ts",
   "api-trip.ts": "app/api/trips/[id]/route.ts",
   "api-upload.ts": "app/api/upload/route.ts",
+  "api-health.ts": "app/api/health/route.ts",
   "Planner.tsx": "components/Planner.tsx",
   "Bits.tsx": "components/Bits.tsx",
   "types.ts": "lib/types.ts",
