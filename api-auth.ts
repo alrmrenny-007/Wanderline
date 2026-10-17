@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "crypto";
-import { getUser, saveUser } from "@/lib/store";
+import { getUser, saveUser, persistent } from "@/lib/store";
 import { createSession, destroySession } from "@/lib/session";
 
 const hashPw = (pw: string, salt: string) => scryptSync(pw, salt, 64).toString("hex");
@@ -10,6 +10,12 @@ export async function POST(req: Request) {
   const e = String(email || "").trim().toLowerCase();
   if (!/^\S+@\S+\.\S+$/.test(e) || String(password || "").length < 8)
     return NextResponse.json({ error: "Use a valid email and a password of 8+ characters." }, { status: 400 });
+  if (!persistent) {
+    // No durable storage yet: an account is simply this email + password pair.
+    const sid = createHash("sha256").update(e + ":" + password).digest("hex").slice(0, 16);
+    await createSession(sid);
+    return NextResponse.json({ ok: true });
+  }
   const id = createHash("sha256").update(e).digest("hex").slice(0, 16);
   const existing = await getUser(id);
 

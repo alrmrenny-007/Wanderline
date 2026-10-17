@@ -3,6 +3,7 @@ import type { Trip } from "./types";
 
 // Vercel Blob in production; in-memory map locally when no token is set.
 const useBlob = !!process.env.BLOB_READ_WRITE_TOKEN;
+export const persistent = useBlob;
 const mem: Map<string, string> = ((globalThis as any).__wl ??= new Map());
 const fresh = (url: string) => fetch(`${url}?t=${Date.now()}`, { cache: "no-store" });
 

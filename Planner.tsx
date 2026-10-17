@@ -41,15 +41,19 @@ const legs = (s: P[]) => ({
   features: s.slice(0, -1).map((p, i) => ({ type: "Feature" as const, properties: {}, geometry: { type: "LineString" as const, coordinates: gc(p, s[i + 1]) } }))
 });
 
-export default function Planner({ trip, history, mapKey }: { trip: Trip; history: Trip[]; mapKey: string }) {
-  const [title, setTitle] = useState(trip.title);
-  const [stops, setStops] = useState<Stop[]>(trip.stops);
+export default function Planner({ id, trip, history, mapKey }: { id: string; trip: Trip | null; history: Trip[]; mapKey: string }) {
+  const [title, setTitle] = useState(trip?.title ?? "Untitled voyage");
+  const [stops, setStops] = useState<Stop[]>(trip?.stops ?? []);
   const [sel, setSel] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [ready, setReady] = useState(false);
   const [err, setErr] = useState("");
   const [status, setStatus] = useState("Saved");
   const [drag, setDrag] = useState<number | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+  const [missing, setMissing] = useState(false);
+  const [ghosts, setGhosts] = useState<Trip[]>(history);
+  const created = useRef(Date.now());
 
   const host = useRef<HTMLDivElement>(null);
   const map = useRef<any>(null);
@@ -57,7 +61,6 @@ export default function Planner({ trip, history, mapKey }: { trip: Trip; history
   const pins = useRef<any[]>([]);
   const stopsRef = useRef(stops); stopsRef.current = stops;
   const playRef = useRef(false);
-  const first = useRef(true);
 
   function addStop(lat: number, lng: number) {
     const s = stopsRef.current;
@@ -65,15 +68,36 @@ export default function Planner({ trip, history, mapKey }: { trip: Trip; history
     setStops(next); setSel(next.length - 1);
   }
 
+  // Load this device's saved copy (works even if the server has nothing).
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(`wl:trip:${id}`);
+      const t: Trip | null = raw ? JSON.parse(raw) : trip;
+      if (t) { setTitle(t.title); setStops(t.stops); created.current = t.createdAt; } else setMissing(true);
+      const others: Trip[] = [...history];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k?.startsWith("wl:trip:") && k !== `wl:trip:${id}`) {
+          const o = JSON.parse(localStorage.getItem(k) || "null");
+          if (o?.id && !others.some((x) => x.id === o.id)) others.push(o);
+        }
+      }
+      setGhosts(others);
+    } catch { if (!trip) setMissing(true); }
+    setHydrated(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
   // Boot the globe.
   useEffect(() => {
+    if (!hydrated || missing) return;
     if (!mapKey) { setErr("Add NEXT_PUBLIC_MAPTILER_KEY in Vercel to load the globe."); return; }
     let dead = false;
     (async () => {
       try {
         const maplibregl = (await import("maplibre-gl")).default;
         if (dead || !host.current) return;
-        const f = trip.stops[0];
+        const f = stopsRef.current[0];
         const m = new maplibregl.Map({
           container: host.current,
           style: `https://api.maptiler.com/maps/hybrid/style.json?key=${mapKey}`,
@@ -105,15 +129,15 @@ export default function Planner({ trip, history, mapKey }: { trip: Trip; history
     })();
     return () => { dead = true; map.current?.remove(); map.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hydrated, missing]);
 
   // Route and ghost trails.
   useEffect(() => {
     const m = map.current;
     if (!ready || !m?.getSource("route")) return;
     m.getSource("route").setData(legs(stops));
-    m.getSource("ghost").setData({ type: "FeatureCollection", features: history.flatMap((h) => legs(h.stops).features) });
-  }, [stops, history, ready]);
+    m.getSource("ghost").setData({ type: "FeatureCollection", features: ghosts.flatMap((h) => legs(h.stops).features) });
+  }, [stops, ghosts, ready]);
 
   // Numbered pins.
   useEffect(() => {
@@ -131,16 +155,19 @@ export default function Planner({ trip, history, mapKey }: { trip: Trip; history
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stops, sel, ready]);
 
-  // Autosave.
+  // Autosave: always on this device, and to the server when it can.
   useEffect(() => {
-    if (first.current) { first.current = false; return; }
-    setStatus("Saving");
+    if (!hydrated || missing) return;
     const t = setTimeout(async () => {
-      const r = await fetch(`/api/trips/${trip.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, stops }) });
-      setStatus(r.ok ? "Saved" : "Not saved, check your connection");
+      setStatus("Saving");
+      try { localStorage.setItem(`wl:trip:${id}`, JSON.stringify({ id, owner: trip?.owner ?? "local", createdAt: created.current, title, stops })); } catch {}
+      try {
+        const r = await fetch(`/api/trips/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, stops }) });
+        setStatus(r.ok ? "Saved" : "Saved on this device");
+      } catch { setStatus("Saved on this device"); }
     }, 800);
     return () => clearTimeout(t);
-  }, [title, stops, trip.id]);
+  }, [title, stops, id, hydrated, missing, trip?.owner]);
 
   function fly(i: number, ms = 3000, zoom = 10) {
     const s = stopsRef.current[i], n = stopsRef.current[i + 1];
@@ -173,16 +200,37 @@ export default function Planner({ trip, history, mapKey }: { trip: Trip; history
     const a = [...stops]; const [m] = a.splice(drag, 1); a.splice(to, 0, m);
     setStops(a); setSel(to); setDrag(null);
   }
+  async function shrink(file: File): Promise<File> {
+    try {
+      const bmp = await createImageBitmap(file);
+      const k = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+      c.getContext("2d")!.drawImage(bmp, 0, 0, c.width, c.height);
+      const b: Blob = await new Promise((res, rej) => c.toBlob((x) => (x ? res(x) : rej()), "image/jpeg", 0.72));
+      return new File([b], "photo.jpg", { type: "image/jpeg" });
+    } catch { return file; }
+  }
   async function upload(i: number, file: File) {
-    const fd = new FormData(); fd.append("file", file);
+    setStatus("Uploading photo");
+    const fd = new FormData(); fd.append("file", await shrink(file));
     const r = await fetch("/api/upload", { method: "POST", body: fd });
-    const j = await r.json();
+    const j = await r.json().catch(() => ({}));
     if (!r.ok) { setStatus(j.error || "Upload failed"); return; }
     patch(i, { photos: [...stops[i].photos, j.url] });
   }
 
   const km = Math.round(stops.slice(0, -1).reduce((t, s, i) => t + dist(s, stops[i + 1]), 0) / 1000);
   const cur = sel !== null ? stops[sel] : null;
+
+  if (missing)
+    return (
+      <main className="gate">
+        <h1>Trip not found</h1>
+        <p className="lede">This trip isn't saved on the server or on this device.</p>
+        <a className="btn" href="/trips">Back to your voyages</a>
+      </main>
+    );
 
   return (
     <div className="stage">
